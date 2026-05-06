@@ -1,8 +1,10 @@
 spring:
   application:
     name: practice
+
   config:
     import: optional:dotenv:.env
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -35,3 +37,15 @@ spring:
     protected-paths:
       - /api/auth/register
       - /api/auth/login
+
+  logging:
+    level:
+      root: INFO
+      tech.iraelie: INFO
+      org.springframework.web: WARN
+      org.hibernate.SQL: WARN # set it to DEBUG if you want to log SQL queries
+      org.hibernate.orm.jdbc.bind: WARN
+    pattern:
+      console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file:
+      name: /var/log/my-app/app.log
