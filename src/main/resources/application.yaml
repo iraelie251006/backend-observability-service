@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: practice
+  config:
+    import: optional:dotenv:.env
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration-ms: ${ACCESS_EXPIRATION_MS}
+      refresh-expiration-ms: ${REFRESH_EXPIRATION_MS}
+
+  rate-limit:
+    capacity: 5
+    refill-tokens: 5
+    refill-seconds: 60
+    protected-paths:
+      - /api/auth/register
+      - /api/auth/login
