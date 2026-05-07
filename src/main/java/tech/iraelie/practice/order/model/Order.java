@@ -16,7 +16,11 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @Entity
 @EntityListeners(AuditingEntityListener.class)
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        indexes = {
+        @Index(name = "idx_orders_user_id", columnList = "user_id")
+})
 public class Order {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
