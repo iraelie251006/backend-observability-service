@@ -35,6 +35,9 @@ spring:
       - /api/auth/register
       - /api/auth/login
 
+  profiles:
+    active: local
+
   logging:
     config: classpath:logback-spring.xml
 
