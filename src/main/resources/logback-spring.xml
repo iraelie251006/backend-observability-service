@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <!-- Import Spring Boot's defaults (color, base patterns) -->
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <!-- Read from application properties -->
     <springProperty scope="context" name="APP_NAME" source="spring.application.name"/>
 
     <!-- === CONSOLE appender (local dev) === -->
@@ -14,42 +12,51 @@
         </encoder>
     </appender>
 
-    <!-- === Rolling file appender (production) === -->
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>/var/log/myapp/app.log</file>
-
-        <!-- Roll over daily AND when file hits 100MB -->
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>/var/log/myapp/app-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>100MB</maxFileSize>
-            <maxHistory>30</maxHistory>       <!-- keep 30 days -->
-            <totalSizeCap>5GB</totalSizeCap>  <!-- hard cap across all files -->
-        </rollingPolicy>
-
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- === Async wrapper — offloads I/O from request threads === -->
-    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="FILE"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold> <!-- never drop WARN/ERROR -->
-        <includeCallerData>false</includeCallerData>  <!-- expensive, off in prod -->
-        <neverBlock>false</neverBlock>
-    </appender>
-
-    <!-- === JSON appender (for log aggregators like ELK/Loki) === -->
-    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- === JSON stdout appender (staging/prod → Docker → log aggregator) === -->
+    <appender name="JSON_STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
             <includeMdcKeyName>traceId</includeMdcKeyName>
             <includeMdcKeyName>spanId</includeMdcKeyName>
             <includeMdcKeyName>userId</includeMdcKeyName>
+            <includeMdcKeyName>service</includeMdcKeyName>
+            <includeMdcKeyName>method</includeMdcKeyName>
+            <includeMdcKeyName>path</includeMdcKeyName>
+            <customFields>{"env":"${ENV:-local}"}</customFields>
+            <fieldNames>
+                <timestamp>@timestamp</timestamp>
+                <message>message</message>
+                <logger>logger</logger>
+                <level>level</level>
+                <thread>thread</thread>
+            </fieldNames>
         </encoder>
     </appender>
 
-    <!-- === Per-environment profiles === -->
+    <!-- === Rolling file appender === -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>./app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>/var/log/myapp/app-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>5GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- === Async wrapper around FILE === -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <neverBlock>false</neverBlock>
+    </appender>
+
+    <!-- === Local profile === -->
     <springProfile name="local">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
@@ -57,31 +64,13 @@
         <logger name="tech.iraelie.practice" level="DEBUG"/>
     </springProfile>
 
+    <!-- === Staging/Prod profile === -->
     <springProfile name="staging, prod">
-        <appender name="JSON_STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-                <!-- Include MDC fields automatically -->
-                <includeMdcKeyName>correlationId</includeMdcKeyName>
-                <includeMdcKeyName>traceId</includeMdcKeyName>
-                <includeMdcKeyName>spanId</includeMdcKeyName>
-                <includeMdcKeyName>userId</includeMdcKeyName>
-                <includeMdcKeyName>service</includeMdcKeyName>
-                <includeMdcKeyName>method</includeMdcKeyName>
-                <includeMdcKeyName>path</includeMdcKeyName>
-                <!-- Custom static fields -->
-                <customFields>{"env":"${ENV:-local}"}</customFields>
-                <fieldNames>
-                    <timestamp>@timestamp</timestamp>
-                    <message>message</message>
-                    <logger>logger</logger>
-                    <level>level</level>
-                    <thread>thread</thread>
-                </fieldNames>
-            </encoder>
-        </appender>
         <root level="INFO">
             <appender-ref ref="JSON_STDOUT"/>
+            <appender-ref ref="ASYNC_FILE"/>
         </root>
+        <logger name="tech.iraelie.practice" level="INFO"/>
     </springProfile>
 
 </configuration>
