@@ -13,13 +13,14 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
+    open-in-view: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     properties:
       hibernate:
         format_sql: true
         jdbc:
           time_zone: UTC
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
   security:
     jwt:
@@ -35,13 +36,14 @@ spring:
       - /api/auth/register
       - /api/auth/login
 
-  profiles:
-    active: local
+logging:
+  config: classpath:logback-spring.xml
 
-  logging:
-    config: classpath:logback-spring.xml
-
-  management:
-    tracing:
-      sampling:
-        probability: 1.0      # use 0.1 in production
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
