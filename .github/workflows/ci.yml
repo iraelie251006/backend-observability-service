@@ -1,0 +1,91 @@
+name: backend-observability-service
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/observability-service
+
+jobs:
+  test:
+    name: "Run spring boot unit, slice, and integration tests"
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: observe_service_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+      - name: Run tests
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/observe_service_test
+          DB_PASSWORD: postgres
+          DB_USERNAME: postgres
+          JWT_SECRET: dqIAICtALsJc8JOpKzkklNMMadpoHOvmBOXMEFKNu0A=
+          ACCESS_EXPIRATION_MS: 900000
+          REFRESH_EXPIRATION_MS: 604800000
+          SPRING_PROFILES_ACTIVE: local
+        run: ./mvnw test -q
+
+  build-and-push:
+    name: Build and Push Image to Docker hub
+    runs-on: ubuntu-latest
+    needs: test
+
+    if: github.event_name == 'push' && github.ref == 'refs/head/main'
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Setup docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata for docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-        # sha-abc1234
+            type=raw,value=latest       # latest
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          dockerfile: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha        # GitHub Actions cache
+          cache-to: type=gha,mode=max
