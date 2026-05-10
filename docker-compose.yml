@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: practice_db
+    environment:
+      POSTGRES_DB: practice
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: practice-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/practice
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      JWT_SECRET: dqIAICtALsJc8JOpKzkklNMMadpoHOvmBOXMEFKNu0A=
+      SPRING_PROFILES_ACTIVE: local
+      ACCESS_EXPIRATION_MS: 900000
+      REFRESH_EXPIRATION_MS: 604800000
+    ports:
+      - "3000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - practice_network
+      - db_network
+
+volumes:
+  postgres_data:
+
+networks:
+  practice_network:
+    driver: bridge
+  db_network:
+    driver: bridge
+    internal: true
