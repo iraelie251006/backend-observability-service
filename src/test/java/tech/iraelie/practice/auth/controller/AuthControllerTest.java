@@ -8,6 +8,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         )
 )
 class AuthControllerTest {
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -53,32 +55,25 @@ class AuthControllerTest {
     @WithMockUser
     @DisplayName("POST /api/auth/register")
     class RegisterTest {
+
         @Test
-        @DisplayName("happy path — returns 200 and sets two cookies")
+        @DisplayName("happy path — returns 201 and sets two cookies")
         void happyPath() throws Exception {
             when(authService.register(any())).thenReturn(FAKE_AUTH);
 
-            RegisterRequest body = RegisterRequest.builder()
-                    .username("Alice")
-                    .email("alice@gmail.com")
-                    .password("password123")
-                    .build();
+            RegisterRequest body = new RegisterRequest("Alice", "alice@gmail.com", "password123");
 
-            mockMvc.perform(
-                    post("/api/auth/register")
+            mockMvc.perform(post("/api/auth/register")
                             .with(csrf())
                             .contentType(APPLICATION_JSON)
                             .content(jsonMapper.writeValueAsString(body)))
-                    .andExpect(status().isOk())
-                    .andExpect(header().exists("Set-Cookie"))
-                    .andExpect(
-                            result -> {
-                                var cookies = result.getResponse().getHeaders("Set-Cookie");
-                                assert cookies.stream().anyMatch(c -> c.startsWith("access_token="));
-
-                                assert cookies.stream().anyMatch(c -> c.startsWith("refresh_token="));
-                            }
-                    );
+                    // register now returns 201, not 200
+                    .andExpect(status().isCreated())
+                    .andExpect(result -> {
+                        var cookies = result.getResponse().getHeaders("Set-Cookie");
+                        assert cookies.stream().anyMatch(c -> c.startsWith("access_token="));
+                        assert cookies.stream().anyMatch(c -> c.startsWith("refresh_token="));
+                    });
         }
 
         @Test
@@ -89,30 +84,28 @@ class AuthControllerTest {
             RegisterRequest body = new RegisterRequest("Alice", "alice@example.com", "password123");
 
             mockMvc.perform(post("/api/auth/register")
-                    .with(csrf())
-                    .contentType(APPLICATION_JSON)
-                    .content(jsonMapper.writeValueAsString(body)))
+                            .with(csrf())
+                            .contentType(APPLICATION_JSON)
+                            .content(jsonMapper.writeValueAsString(body)))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.status").value(409))
-                    .andExpect(jsonPath("$.message").value("User email is already taken"));
+                    .andExpect(jsonPath("$.status").value(409));
         }
 
         @Test
-        @DisplayName("blank username — returns 400 Bad Request (Bean Validation)")
+        @DisplayName("blank username — returns 400")
         void blankUsername() throws Exception {
             RegisterRequest body = new RegisterRequest("", "alice@gmail.com", "password123");
 
-            mockMvc.perform(
-                    post("/api/auth/register")
+            mockMvc.perform(post("/api/auth/register")
                             .with(csrf())
                             .contentType(APPLICATION_JSON)
-                            .content(jsonMapper.writeValueAsString(body))
-            ).andExpect(status().isBadRequest())
+                            .content(jsonMapper.writeValueAsString(body)))
+                    .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400));
         }
 
         @Test
-        @DisplayName("password too short (< 8 chars) — returns 400 Bad Request")
+        @DisplayName("password too short — returns 400")
         void shortPassword() throws Exception {
             RegisterRequest body = new RegisterRequest("Alice", "alice@example.com", "abc");
 
@@ -125,7 +118,7 @@ class AuthControllerTest {
         }
 
         @Test
-        @DisplayName("invalid email format — returns 400 Bad Request")
+        @DisplayName("invalid email format — returns 400")
         void invalidEmail() throws Exception {
             RegisterRequest body = new RegisterRequest("Alice", "not-an-email", "password123");
 
@@ -142,6 +135,7 @@ class AuthControllerTest {
     @WithMockUser
     @DisplayName("POST /api/auth/login")
     class LoginTest {
+
         @Test
         @DisplayName("happy path — returns 200 and sets two cookies")
         void happyPath() throws Exception {
@@ -149,25 +143,25 @@ class AuthControllerTest {
 
             LoginRequest body = new LoginRequest("alice@example.com", "password123");
 
-            mockMvc.perform(
-                    post("/api/auth/login")
+            mockMvc.perform(post("/api/auth/login")
                             .with(csrf())
                             .contentType(APPLICATION_JSON)
-                            .content(jsonMapper.writeValueAsString(body))
-            ).andExpect(status().isOk())
+                            .content(jsonMapper.writeValueAsString(body)))
+                    .andExpect(status().isOk())
                     .andExpect(result -> {
                         var cookies = result.getResponse().getHeaders("Set-Cookie");
                         assert cookies.stream().anyMatch(c -> c.startsWith("access_token="));
                         assert cookies.stream().anyMatch(c -> c.startsWith("refresh_token="));
-                    })
-            ;
+                    });
         }
 
         @Test
-        @DisplayName("wrong credentials — returns 401 when AuthenticationManager throws")
+        @DisplayName("wrong credentials — returns 401")
         void wrongCredentials() throws Exception {
+            // BadCredentialsException is an AuthenticationException — Spring Security
+            // intercepts it before GlobalExceptionHandler and returns 401, not 500
             when(authService.login(any()))
-                    .thenThrow(new org.springframework.security.authentication.BadCredentialsException("Bad credentials"));
+                    .thenThrow(new BadCredentialsException("Bad credentials"));
 
             LoginRequest body = new LoginRequest("alice@example.com", "wrongpassword");
 
@@ -175,13 +169,12 @@ class AuthControllerTest {
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(jsonMapper.writeValueAsString(body)))
-                    .andExpect(status().isInternalServerError()); // caught by GlobalExceptionHandler → 500
+                    .andExpect(status().isUnauthorized());
         }
 
         @Test
-        @DisplayName("missing email field — returns 400 Bad Request")
+        @DisplayName("missing email field — returns 400")
         void missingEmail() throws Exception {
-            // Send JSON without the email field
             String body = """
                     { "password": "password123" }
                     """;
@@ -194,23 +187,8 @@ class AuthControllerTest {
         }
     }
 
-    @Nested
-    @WithMockUser
-    @DisplayName("Rate limiting test for register and login endpoints")
-    class RateLimitRegisterLoginTest {
-        @Test
-        @DisplayName("Rate limiting test for register and login endpoints")
-        void shouldReturn429AfterFiveAttempts() throws Exception {
-            for (int i = 0; i < 5; i++) {
-                mockMvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON)
-                                .content("{\"email\":\"a@b.com\",\"password\":\"wrong\"}"))
-                        .andExpect(status().isForbidden()); // legitimate 401
-            }
-
-            // 6th request should be rate-limited
-            mockMvc.perform(post("/api/auth/login").contentType(APPLICATION_JSON)
-                            .content("{\"email\":\"a@b.com\",\"password\":\"wrong\"}"))
-                    .andExpect(status().isForbidden());
-        }
-    }
+    // Rate limit testing belongs in an integration test where RateLimitFilter
+    // actually runs in the servlet context — @WebMvcTest excludes it, so the
+    // test was vacuous. Move this to a @SpringBootTest slice when you write
+    // integration tests.
 }

@@ -1,18 +1,17 @@
 package tech.iraelie.practice.product.service;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import tech.iraelie.practice.product.model.Product;
 
-import java.util.List;
-import java.util.Optional;
-
 public interface ProductInterface {
-    List<Product> getAllProducts();
+    Page<Product> getAllProducts(Pageable pageable);
 
-    Optional<Product> getProductById(String id);
+    Product getProductById(String id);
 
     Product save(Product product);
 
-    Optional<Product> update(String id, Product product);
+    Product update(String id, Product product);
 
-    boolean deleteById(String id);
+    void deleteById(String id);
 }

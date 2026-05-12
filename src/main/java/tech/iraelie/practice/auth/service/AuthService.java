@@ -1,6 +1,7 @@
 package tech.iraelie.practice.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -9,13 +10,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.iraelie.practice.auth.dto.*;
 import tech.iraelie.practice.auth.exception.UserEmailAlreadyExistException;
-import tech.iraelie.practice.user.exception.UserNotFoundException;
 import tech.iraelie.practice.user.model.User;
 import tech.iraelie.practice.user.repository.UserRepository;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
-public class AuthService implements AuthInterface{
+public class AuthService implements AuthInterface {
+
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -24,65 +26,60 @@ public class AuthService implements AuthInterface{
 
     @Override
     @Transactional
-    public AuthResponse register(RegisterRequest registerRequest) {
-        if (userRepository.existsByEmail(registerRequest.email().trim().toLowerCase())) {
+    public AuthResponse register(RegisterRequest request) {
+        String normalizedEmail = request.email().trim().toLowerCase();
+
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            log.warn("Registration attempt with existing email");  // never log the email
             throw new UserEmailAlreadyExistException();
         }
 
-        User userDetails = User.builder()
-                .name(registerRequest.username())
-                .email(registerRequest.email().trim().toLowerCase())
-                .password(passwordEncoder.encode(registerRequest.password()))
+        User user = User.builder()
+                .name(request.username())
+                .email(normalizedEmail)
+                .password(passwordEncoder.encode(request.password()))
                 .build();
 
-        userRepository.save(userDetails);
+        userRepository.save(user);
+        log.info("User registered userId={}", user.getId());
 
         return AuthResponse.builder()
-                .accessToken(generateJwtToken(userDetails))
-                .refreshToken(generateRefreshToken(userDetails))
+                .accessToken(jwtService.generateToken(user))
+                .refreshToken(refreshTokenService.createRefreshToken(user))
                 .build();
     }
 
     @Override
-    public AuthResponse login(LoginRequest loginRequest) {
+    public AuthResponse login(LoginRequest request) {
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        loginRequest.email().trim().toLowerCase(),
-                        loginRequest.password()
+                        request.email().trim().toLowerCase(),
+                        request.password()
                 )
         );
 
-        User userDetails = (User) auth.getPrincipal();
+        User user = (User) auth.getPrincipal();
+        log.info("User logged in userId={}", user.getId());
 
         return AuthResponse.builder()
-                .accessToken(generateJwtToken(userDetails))
-                .refreshToken(generateRefreshToken(userDetails))
+                .accessToken(jwtService.generateToken(user))
+                .refreshToken(refreshTokenService.createRefreshToken(user))
                 .build();
     }
 
     @Override
-    public void logout(User userDetails) {
-        User user = userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new UserNotFoundException(userDetails.getId()));
-
+    public void logout(User user) {
+        // Principal is already the authenticated User entity — no DB call needed
         refreshTokenService.revokeAllUserTokens(user.getId());
+        log.info("User logged out userId={}", user.getId());
     }
 
     @Override
     public AuthResponse refresh(RefreshRequest request) {
         TokenPair pair = refreshTokenService.rotateRefreshToken(request.refreshToken());
-
         return AuthResponse.builder()
                 .accessToken(pair.accessToken())
                 .refreshToken(pair.refreshToken())
                 .build();
-    }
-
-    private String generateJwtToken(User userDetails) {
-        return jwtService.generateToken(userDetails);
-    }
-
-    private String generateRefreshToken(User userDetails) {
-        return refreshTokenService.createRefreshToken(userDetails);
     }
 }

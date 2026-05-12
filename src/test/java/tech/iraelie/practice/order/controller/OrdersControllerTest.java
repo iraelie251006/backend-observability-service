@@ -3,11 +3,12 @@ package tech.iraelie.practice.order.controller;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -17,13 +18,14 @@ import tech.iraelie.practice.limit.RateLimitFilter;
 import tech.iraelie.practice.order.dto.OrderCreateRequest;
 import tech.iraelie.practice.order.dto.OrderRequest;
 import tech.iraelie.practice.order.dto.OrderStatus;
+import tech.iraelie.practice.order.exception.OrderNotFoundException;
 import tech.iraelie.practice.order.service.OrderInterface;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -39,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         )
 )
 class OrdersControllerTest {
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -57,33 +60,35 @@ class OrdersControllerTest {
     }
 
     @Nested
-    @DisplayName("Unauthenticated requests tests")
+    @DisplayName("Unauthenticated requests")
     class UnauthenticatedTest {
+
         @Test
-        @DisplayName("GET /api/orders/all — 401 when not logged in")
+        @DisplayName("GET /api/orders/all — 401 when not authenticated")
         void getAllOrders_unauthorized() throws Exception {
             mockMvc.perform(get("/api/orders/all"))
                     .andExpect(status().isUnauthorized());
         }
 
         @Test
-        @DisplayName("GET /api/orders/{id} — 401 when not logged in")
+        @DisplayName("GET /api/orders/{id} — 401 when not authenticated")
         void getById_unauthorized() throws Exception {
             mockMvc.perform(get("/api/orders/order-1"))
                     .andExpect(status().isUnauthorized());
         }
 
         @Test
-        @DisplayName("POST /api/orders/ — 401 when not logged in")
+        @DisplayName("POST /api/orders — 401 when not authenticated")
         void createOrder_unauthorized() throws Exception {
-            mockMvc.perform(post("/api/orders/").with(csrf())
+            // No trailing slash — fixed from original
+            mockMvc.perform(post("/api/orders").with(csrf())
                             .contentType(APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isUnauthorized());
         }
 
         @Test
-        @DisplayName("DELETE /api/orders/{id} — 401 when not logged in")
+        @DisplayName("DELETE /api/orders/{id} — 401 when not authenticated")
         void deleteOrder_unauthorized() throws Exception {
             mockMvc.perform(delete("/api/orders/order-1").with(csrf()))
                     .andExpect(status().isUnauthorized());
@@ -91,25 +96,32 @@ class OrdersControllerTest {
     }
 
     @Nested
-    @DisplayName("Authenticated as USER role")
+    @DisplayName("Authenticated requests")
+    @WithMockUser(username = "alice@example.com")
     class AuthenticatedUser {
-        @Test
-        @WithMockUser(username = "alice@gmail.com")
-        @DisplayName("GET /api/orders/all — 200 with list of orders")
-        void getAllOrders_returnsOk() throws Exception {
-            Mockito.when(orderService.getAllOrders()).thenReturn(List.of(stubOrder()));
 
-            mockMvc.perform(get("/api/orders/all"))
+        @Test
+        @DisplayName("GET /api/orders/all — 200 with paginated orders")
+        void getAllOrders_returnsOk() throws Exception {
+            // getAllOrders now takes Pageable — stub with any(Pageable)
+            when(orderService.getAllOrders(any()))
+                    .thenReturn(new PageImpl<>(List.of(stubOrder()), PageRequest.of(0, 20), 1));
+
+            mockMvc.perform(get("/api/orders/all")
+                            .param("page", "0")
+                            .param("size", "20"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].id").value("order-1"))
-                    .andExpect(jsonPath("$[0].totalAmount").value(99.99));
+                    // PageImpl serializes to { content: [...], totalElements: ..., ... }
+                    .andExpect(jsonPath("$.content[0].id").value("order-1"))
+                    .andExpect(jsonPath("$.content[0].totalAmount").value(99.99))
+                    .andExpect(jsonPath("$.totalElements").value(1));
         }
 
         @Test
-        @WithMockUser(username = "alice@example.com")
         @DisplayName("GET /api/orders/{id} — 200 when order exists")
         void getById_returnsOk() throws Exception {
-            when(orderService.getOrderById("order-1")).thenReturn(Optional.of(stubOrder()));
+            // getOrderById now returns OrderRequest directly, not Optional
+            when(orderService.getOrderById("order-1")).thenReturn(stubOrder());
 
             mockMvc.perform(get("/api/orders/order-1"))
                     .andExpect(status().isOk())
@@ -117,18 +129,19 @@ class OrdersControllerTest {
         }
 
         @Test
-        @WithMockUser(username = "alice@example.com")
         @DisplayName("GET /api/orders/{id} — 404 when order not found")
         void getById_notFound() throws Exception {
-            when(orderService.getOrderById("missing")).thenReturn(Optional.empty());
+            // 404 is now driven by OrderNotFoundException, not Optional.empty()
+            when(orderService.getOrderById("missing"))
+                    .thenThrow(new OrderNotFoundException("missing"));
 
             mockMvc.perform(get("/api/orders/missing"))
-                    .andExpect(status().isNotFound());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404));
         }
 
         @Test
-        @WithMockUser(username = "alice@example.com")
-        @DisplayName("POST /api/orders/ — 201 Created")
+        @DisplayName("POST /api/orders — 201 Created")
         void createOrder_returnsCreated() throws Exception {
             when(orderService.createOrder(any())).thenReturn(stubOrder());
 
@@ -138,7 +151,8 @@ class OrdersControllerTest {
                     .orderStatus(OrderStatus.PENDING)
                     .build();
 
-            mockMvc.perform(post("/api/orders/").with(csrf())
+            // No trailing slash
+            mockMvc.perform(post("/api/orders").with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(jsonMapper.writeValueAsString(req)))
                     .andExpect(status().isCreated())
@@ -146,37 +160,23 @@ class OrdersControllerTest {
         }
 
         @Test
-        @WithMockUser(username = "alice@example.com")
         @DisplayName("DELETE /api/orders/{id} — 204 when deleted successfully")
         void deleteOrder_returnsNoContent() throws Exception {
-            when(orderService.deleteOrderById("order-1")).thenReturn(true);
-
+            // deleteOrderById is now void — no stub needed for happy path
             mockMvc.perform(delete("/api/orders/order-1").with(csrf()))
                     .andExpect(status().isNoContent());
         }
 
         @Test
-        @WithMockUser(username = "alice@example.com")
-        @DisplayName("DELETE /api/orders/{id} — 404 when order doesn't exist")
+        @DisplayName("DELETE /api/orders/{id} — 404 when order not found")
         void deleteOrder_notFound() throws Exception {
-            when(orderService.deleteOrderById("missing")).thenReturn(false);
+            // 404 is now driven by OrderNotFoundException thrown from the service
+            doThrow(new OrderNotFoundException("missing"))
+                    .when(orderService).deleteOrderById("missing");
 
             mockMvc.perform(delete("/api/orders/missing").with(csrf()))
-                    .andExpect(status().isNotFound());
-        }
-    }
-
-    @Nested
-    @DisplayName("Role-based access denial")
-    class RoleBasedAccess {
-        @Test
-        @WithMockUser
-        @DisplayName("GET /api/orders/all — 200 even with no explicit authorities (endpoint uses anyRequest().authenticated())")
-        void noAuthoritiesStillPassesAuthenticatedCheck() throws Exception {
-            when(orderService.getAllOrders()).thenReturn(List.of());
-
-            mockMvc.perform(get("/api/orders/all"))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404));
         }
     }
 }

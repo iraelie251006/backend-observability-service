@@ -1,55 +1,73 @@
 package tech.iraelie.practice.product.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.iraelie.practice.product.model.Product;
 import tech.iraelie.practice.product.exception.ProductNotFoundException;
 import tech.iraelie.practice.product.repository.ProductRepository;
 
-import java.util.List;
-import java.util.Optional;
-
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ProductService implements ProductInterface{
     private final ProductRepository productRepository;
 
     @Override
-    public List<Product> getAllProducts() {
-        return productRepository.findAll();
+    public Page<Product> getAllProducts(Pageable pageable) {
+        log.info("Fetching products page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
+        Page<Product> page = productRepository.findAll(pageable);
+        log.info("Fetched products totalElements={}", page.getTotalElements());
+        return page;
     }
 
     @Override
-    public Optional<Product> getProductById(String id) {
-        return productRepository.findById(id);
+    public Product getProductById(String id) {
+        log.info("Fetching product productId={}", id);
+        return productRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Product not found productId={}", id);
+                    return new ProductNotFoundException(id);
+                });
     }
 
     @Override
     public Product save(Product product) {
-        return productRepository.save(product);
+        log.info("Creating product name={}", product.getName());
+        Product saved = productRepository.save(product);
+        log.info("Product created productId={}", saved.getId());
+        return saved;
     }
 
     @Override
     @Transactional
-    public Optional<Product> update(String id, Product product) {
-        return Optional.ofNullable(productRepository.findById(id)
-                .map(p -> {
-                    p.setName(product.getName());
-                    p.setPrice(product.getPrice());
-                    return p;
-                })
-                .orElseThrow(() -> new ProductNotFoundException(id)));
+    public Product update(String id, Product product) {
+        log.info("Updating product productId={}", id);
+        Product existing = productRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Product not found for update productId={}", id);
+                    return new ProductNotFoundException(id);
+                });
+        existing.setName(product.getName());
+        existing.setPrice(product.getPrice());
+        log.info("Product updated productId={}", id);
+
+        return existing;
     }
 
     @Override
     @Transactional
-    public boolean deleteById(String id) {
-        return productRepository.findById(id)
-                .map(p -> {
-                    productRepository.deleteById(id);
-                    return true;
-                })
-                .orElseThrow(() -> new ProductNotFoundException(id));
+    public void deleteById(String id) {
+        log.info("Deleting product productId={}", id);
+        Product existing = productRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Product not found for deletion productId={}", id);
+                    return new ProductNotFoundException(id);
+                });
+        productRepository.delete(existing);
+        log.info("Product deleted productId={}", id);
     }
 }

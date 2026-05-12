@@ -1,6 +1,7 @@
 package tech.iraelie.practice.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -14,8 +15,8 @@ import tech.iraelie.practice.user.model.User;
 import java.time.Instant;
 import java.util.UUID;
 
+@Slf4j
 @Service
-@Transactional
 @RequiredArgsConstructor
 public class RefreshTokenService {
 
@@ -26,72 +27,62 @@ public class RefreshTokenService {
     private final JwtService jwtService;
 
     public String createRefreshToken(User user) {
-        return createRefreshToken(user, UUID.randomUUID().toString()); // new family
+        return createRefreshToken(user, UUID.randomUUID().toString());
     }
 
-    // ── Create within an existing family (called on rotation) ───────
     private String createRefreshToken(User user, String family) {
         String rawToken = UUID.randomUUID().toString();
-
-        String hashedToken = DigestUtils.sha256Hex(rawToken);
-
         RefreshToken token = RefreshToken.builder()
-                .tokenHash(hashedToken)
+                .tokenHash(DigestUtils.sha256Hex(rawToken))
                 .user(user)
                 .family(family)
                 .revoked(false)
                 .createdAt(Instant.now())
                 .expiresAt(Instant.now().plusMillis(refreshExpirationMs))
                 .build();
-
         refreshTokenRepository.save(token);
         return rawToken;
     }
 
+    @Transactional
     public TokenPair rotateRefreshToken(String incomingToken) {
-
         String hash = DigestUtils.sha256Hex(incomingToken);
 
-        // 1. Look up the token in the database
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash)
-                .orElseThrow(() -> new TokenException("Refresh token not found"));
+                .orElseThrow(() -> {
+                    log.warn("Refresh token not found — possible replay or token scraping");
+                    return new TokenException("Refresh token not found");
+                });
 
-        // 2. Check if it's already been revoked
         if (stored.isRevoked()) {
-            // !! REUSE DETECTED !!
-            // A revoked token was presented — someone is replaying an old token.
-            // We don't know if it's the legitimate client or an attacker.
-            // Safe assumption: theft occurred. Nuke the entire family.
+            // Security event: revoked token presented — nuke the entire family
+            log.error("REFRESH TOKEN REUSE DETECTED family={} userId={}",
+                    stored.getFamily(), stored.getUser().getId());
             refreshTokenRepository.revokeAllByFamily(stored.getFamily());
-            throw new TokenException(
-                    "Refresh token reuse detected. All sessions invalidated."
-            );
+            throw new TokenException("Refresh token reuse detected. All sessions invalidated.");
         }
 
-        // 3. Check expiry
         if (stored.getExpiresAt().isBefore(Instant.now())) {
+            // Dirty flag — @Transactional will flush automatically, no explicit save needed
             stored.setRevoked(true);
-            refreshTokenRepository.save(stored);
+            log.info("Refresh token expired userId={}", stored.getUser().getId());
             throw new TokenException("Refresh token expired. Please log in again.");
         }
 
-        // 4. Revoke the current token (rotate it out)
+        // Rotate: mark current as revoked, issue new one in the same family
         stored.setRevoked(true);
-        refreshTokenRepository.save(stored);
+        // Dirty check flushes the revocation — explicit save removed
 
-        // 5. Issue a brand-new token in the same family
-        String newRefreshToken =
-                createRefreshToken(stored.getUser(), stored.getFamily());
+        String newRefreshToken = createRefreshToken(stored.getUser(), stored.getFamily());
+        String newAccessToken = jwtService.generateToken(stored.getUser());
 
-        // 6. Generate a new access token
-        String newAccessToken =
-                jwtService.generateToken(stored.getUser());
-
+        log.info("Refresh token rotated userId={} family={}", stored.getUser().getId(), stored.getFamily());
         return new TokenPair(newAccessToken, newRefreshToken);
     }
 
-    // ── Logout — revoke all tokens for this user ─────────────────────
+    @Transactional
     public void revokeAllUserTokens(String userId) {
         refreshTokenRepository.revokeAllByUserId(userId);
+        log.info("All refresh tokens revoked userId={}", userId);
     }
 }

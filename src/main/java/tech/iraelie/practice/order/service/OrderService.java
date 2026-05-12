@@ -1,6 +1,9 @@
 package tech.iraelie.practice.order.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,115 +13,162 @@ import tech.iraelie.practice.order.dto.StatusRequest;
 import tech.iraelie.practice.order.exception.OrderNotFoundException;
 import tech.iraelie.practice.order.model.Order;
 import tech.iraelie.practice.order.repository.OrderRepository;
-import tech.iraelie.practice.user.model.User;
 import tech.iraelie.practice.user.dto.UserDTO;
 import tech.iraelie.practice.user.exception.UserNotFoundException;
 import tech.iraelie.practice.user.repository.UserRepository;
 
-import java.util.List;
-import java.util.Optional;
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService implements OrderInterface {
+
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
 
     @Override
-    public OrderRequest createOrder(OrderCreateRequest order) {
-        User user = userRepository.findById(order.getUserId())
-                .orElseThrow(() -> new UserNotFoundException(order.getUserId()));
+    @Transactional
+    public OrderRequest createOrder(OrderCreateRequest request) {
+        log.info("Creating order userId={}", request.getUserId());
 
-        Order newOrder = Order.builder()
+        var user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> {
+                    log.warn("User not found during order creation userId={}", request.getUserId());
+                    return new UserNotFoundException(request.getUserId());
+                });
+
+        Order order = Order.builder()
                 .user(user)
-                .orderStatus(order.getOrderStatus())
-                .totalAmount(order.getTotalAmount())
+                .orderStatus(request.getOrderStatus())
+                .totalAmount(request.getTotalAmount())
                 .build();
 
-        orderRepository.save(newOrder);
-
-        return mapToOrderRequest(newOrder);
+        Order saved = orderRepository.save(order);
+        log.info("Order created orderId={} userId={}", saved.getId(), request.getUserId());
+        return mapToOrderRequest(saved);
     }
 
     @Override
     @PreAuthorize("hasRole('ADMIN')")
-    public List<OrderRequest> getAllOrders() {
-        return orderRepository.findAll()
-                .stream().map(this::mapToOrderRequest).toList();
+    public Page<OrderRequest> getAllOrders(Pageable pageable) {
+        log.info("Fetching all orders page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
+        Page<OrderRequest> page = orderRepository.findAll(pageable).map(this::mapToOrderRequest);
+        log.info("Fetched orders totalElements={}", page.getTotalElements());
+        return page;
     }
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
-    public Optional<OrderRequest> getOrderById(String id) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-
-        return Optional.of(mapToOrderRequest(order));
-    }
-
-    @Override
-    @Transactional
-    @PreAuthorize("#id == authentication.principal.id")
-    public Optional<OrderRequest> updateOrderById(String id, OrderRequest orderRequest) {
-        User user = userRepository.findById(orderRequest.getUser().getId())
-                .orElseThrow(() -> new UserNotFoundException(orderRequest.getUser().getId()));
-
-        return Optional.ofNullable(orderRepository.findById(id)
-                .map(this::mapToOrderRequest)
-                .orElseThrow(() -> new OrderNotFoundException(id))
-        );
-    }
-
-    @Override
-    @Transactional
-    public Optional<OrderRequest> updatePartialOrderData(String id, OrderRequest orderRequest) {
-        return Optional.ofNullable(orderRepository.findById(id)
-                .map(order -> {
-                    if (orderRequest.getTotalAmount() != null) {
-                        order.setTotalAmount(orderRequest.getTotalAmount());
-                    }
-                    if (orderRequest.getOrderStatus() != null) {
-                        order.setOrderStatus(orderRequest.getOrderStatus());
-                    }
-                    return mapToOrderRequest(order);
-                }).orElseThrow(() -> new OrderNotFoundException(id)));
-    }
-
-    @Override
-    @Transactional
-    public Optional<OrderRequest> updateStatusById(String id, StatusRequest status) {
-        return Optional.ofNullable(orderRepository.findById(id)
-                .map(order -> {
-                    if (status.getStatus() != order.getOrderStatus()) {
-                        order.setOrderStatus(status.getStatus());
-                    }
-                    return mapToOrderRequest(order);
-                }).orElseThrow(() -> new OrderNotFoundException(id)));
-    }
-
-    @Override
-    public boolean deleteOrderById(String id) {
+    public OrderRequest getOrderById(String id) {
+        log.info("Fetching order orderId={}", id);
         return orderRepository.findById(id)
-                .map(order -> {
-                    orderRepository.deleteById(id);
-                    return true;
-                })
-                .orElseThrow(() -> new OrderNotFoundException(id));
+                .map(this::mapToOrderRequest)
+                .orElseThrow(() -> {
+                    log.warn("Order not found orderId={}", id);
+                    return new OrderNotFoundException(id);
+                });
     }
 
-    public OrderRequest mapToOrderRequest(Order order) {
+    @Override
+    @Transactional
+    @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    public OrderRequest updateOrderById(String id, OrderRequest orderRequest) {
+        log.info("Updating order orderId={}", id);
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Order not found for update orderId={}", id);
+                    return new OrderNotFoundException(id);
+                });
+
+        if (orderRequest.getTotalAmount() != null) {
+            order.setTotalAmount(orderRequest.getTotalAmount());
+        }
+        if (orderRequest.getOrderStatus() != null) {
+            order.setOrderStatus(orderRequest.getOrderStatus());
+        }
+        // User reassignment: validate new user exists before binding
+        if (orderRequest.getUser() != null && orderRequest.getUser().getId() != null) {
+            var user = userRepository.findById(orderRequest.getUser().getId())
+                    .orElseThrow(() -> {
+                        log.warn("User not found during order update userId={}", orderRequest.getUser().getId());
+                        return new UserNotFoundException(orderRequest.getUser().getId());
+                    });
+            order.setUser(user);
+        }
+
+        log.info("Order updated orderId={}", id);
+        return mapToOrderRequest(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderRequest updatePartialOrderData(String id, OrderRequest orderRequest) {
+        log.info("Partial update for orderId={}", id);
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Order not found for partial update orderId={}", id);
+                    return new OrderNotFoundException(id);
+                });
+
+        if (orderRequest.getTotalAmount() != null) {
+            order.setTotalAmount(orderRequest.getTotalAmount());
+        }
+        if (orderRequest.getOrderStatus() != null) {
+            order.setOrderStatus(orderRequest.getOrderStatus());
+        }
+
+        log.info("Partial update complete orderId={}", id);
+        return mapToOrderRequest(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderRequest updateStatusById(String id, StatusRequest status) {
+        log.info("Updating status for orderId={}", id);
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Order not found for status update orderId={}", id);
+                    return new OrderNotFoundException(id);
+                });
+
+        if (!status.getStatus().equals(order.getOrderStatus())) {
+            log.info("Status transition orderId={} from={} to={}", id, order.getOrderStatus(), status.getStatus());
+            order.setOrderStatus(status.getStatus());
+        } else {
+            log.debug("Status unchanged orderId={} status={}", id, status.getStatus());
+        }
+
+        return mapToOrderRequest(order);
+    }
+
+    @Override
+    @Transactional
+    public void deleteOrderById(String id) {
+        log.info("Deleting order orderId={}", id);
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Order not found for deletion orderId={}", id);
+                    return new OrderNotFoundException(id);
+                });
+
+        orderRepository.delete(order);
+        log.info("Order deleted orderId={}", id);
+    }
+
+    private OrderRequest mapToOrderRequest(Order order) {
         return OrderRequest.builder()
                 .id(order.getId())
                 .orderStatus(order.getOrderStatus())
                 .totalAmount(order.getTotalAmount())
-                .user(
-                        UserDTO.builder()
-                                .id(order.getUser().getId())
-                                .email(order.getUser().getEmail())
-                                .name(order.getUser().getName())
-                                .createdAt(order.getUser().getCreatedAt())
-                                .build()
-                )
+                .user(UserDTO.builder()
+                        .id(order.getUser().getId())
+                        .email(order.getUser().getEmail())
+                        .name(order.getUser().getName())
+                        .createdAt(order.getUser().getCreatedAt())
+                        .build())
                 .build();
     }
 }

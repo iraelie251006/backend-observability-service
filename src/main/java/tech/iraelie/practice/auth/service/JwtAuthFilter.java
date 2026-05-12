@@ -7,7 +7,9 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -19,9 +21,12 @@ import tech.iraelie.practice.user.model.User;
 
 import java.io.IOException;
 
+@Slf4j
 @Component
+@Order(2)  // after CorrelationIdFilter(@Order(1)), before Spring Security chain
 @RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
+
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
 
@@ -30,52 +35,53 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
-        final String jwtToken = extraJwtFromCookie(request);
 
-        if (jwtToken != null) {
-            final String username;
+        final String jwtToken = extractJwtFromCookie(request);
 
+        if (jwtToken == null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String username;
+        try {
+            username = jwtService.extractUsername(jwtToken);
+        } catch (JwtException ex) {
+            // Token is malformed or signature invalid — let Spring Security's
+            // AuthenticationEntryPoint return a properly shaped 401
+            log.warn("JWT parse failure path={} reason={}", request.getRequestURI(), ex.getMessage());
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
-                username = jwtService.extractUsername(jwtToken);
-            } catch (JwtException ex) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("Invalid or expired token");
-                return;
-            }
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                try {
-                    User userDetails = (User) userDetailsService.loadUserByUsername(username);
-                    if (jwtService.isTokenValid(jwtToken, userDetails)) {
-                        UsernamePasswordAuthenticationToken authToken =
-                                new UsernamePasswordAuthenticationToken(
-                                        userDetails,
-                                        null,
-                                        userDetails.getAuthorities()
-                                );
+                User userDetails = (User) userDetailsService.loadUserByUsername(username);
 
-                        authToken.setDetails(
-                                new WebAuthenticationDetailsSource().buildDetails(request)
-                        );
-
-                        SecurityContextHolder.getContext().setAuthentication(authToken);
-                    }
-                } catch (UsernameNotFoundException e) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.getWriter().write("Invalid or expired token");
-                    return;
+                if (jwtService.isTokenValid(jwtToken, userDetails)) {
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                    log.debug("JWT authenticated userId={} path={}", userDetails.getId(), request.getRequestURI());
+                } else {
+                    log.debug("JWT invalid (expired or wrong subject) path={}", request.getRequestURI());
                 }
+
+            } catch (UsernameNotFoundException ex) {
+                // Token was valid but the user no longer exists in the DB
+                log.warn("JWT references deleted user path={}", request.getRequestURI());
             }
         }
+
         filterChain.doFilter(request, response);
     }
 
-    private String extraJwtFromCookie(HttpServletRequest request) {
+    private String extractJwtFromCookie(HttpServletRequest request) {
         if (request.getCookies() == null) return null;
-
         for (Cookie cookie : request.getCookies()) {
-            if ("access_token".equals(cookie.getName())) {
-                return cookie.getValue();
-            }
+            if ("access_token".equals(cookie.getName())) return cookie.getValue();
         }
         return null;
     }

@@ -3,6 +3,8 @@ package tech.iraelie.practice.auth.controller;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -13,76 +15,119 @@ import tech.iraelie.practice.auth.dto.AuthResponse;
 import tech.iraelie.practice.auth.dto.LoginRequest;
 import tech.iraelie.practice.auth.dto.RefreshRequest;
 import tech.iraelie.practice.auth.dto.RegisterRequest;
+import tech.iraelie.practice.auth.exception.TokenException;
 import tech.iraelie.practice.auth.service.AuthInterface;
 import tech.iraelie.practice.user.model.User;
 
 import java.time.Duration;
 
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
 public class AuthController {
+
     private final AuthInterface authService;
 
     @PostMapping("/register")
-    public ResponseEntity<Void> registerUser(
-            @Valid @RequestBody RegisterRequest registerRequest,
-            HttpServletResponse response
-    ) {
-        AuthResponse authResponse = authService.register(registerRequest);
-        setAuthCookies(response, authResponse.accessToken(), authResponse.refreshToken(), false);
+    public ResponseEntity<Void> register(
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletResponse response) {
 
-        return ResponseEntity.ok().build();
+        MDC.put("endpoint", "POST /api/auth/register");
+        try {
+            log.info("Request received");
+            AuthResponse auth = authService.register(request);
+            setAuthCookies(response, auth.accessToken(), auth.refreshToken());
+            log.info("Request completed");
+            return ResponseEntity.status(HttpStatus.CREATED).build();
+        } finally {
+            MDC.remove("endpoint");
+        }
     }
 
     @PostMapping("/login")
-    public ResponseEntity<Void> signInUser(
-            @Valid @RequestBody LoginRequest loginRequest,
-            HttpServletResponse response
-    ) {
-        AuthResponse authResponse = authService.login(loginRequest);
-        setAuthCookies(response, authResponse.accessToken(), authResponse.refreshToken(), false);
+    public ResponseEntity<Void> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletResponse response) {
 
-        return ResponseEntity.ok().build();
+        MDC.put("endpoint", "POST /api/auth/login");
+        try {
+            log.info("Request received");
+            AuthResponse auth = authService.login(request);
+            setAuthCookies(response, auth.accessToken(), auth.refreshToken());
+            log.info("Request completed");
+            return ResponseEntity.ok().build();
+        } finally {
+            MDC.remove("endpoint");
+        }
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<Void> refresh(
             @CookieValue(name = "refresh_token", required = false) String refreshToken,
-            HttpServletResponse response
-    ) {
-        if (refreshToken == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            HttpServletResponse response) {
+
+        MDC.put("endpoint", "POST /api/auth/refresh");
+        try {
+            if (refreshToken == null) {
+                // Throw so GlobalExceptionHandler returns a properly shaped ErrorResponse
+                throw new TokenException("No refresh token provided");
+            }
+            log.info("Request received");
+            AuthResponse auth = authService.refresh(new RefreshRequest(refreshToken));
+            setAuthCookies(response, auth.accessToken(), auth.refreshToken());
+            log.info("Request completed");
+            return ResponseEntity.ok().build();
+        } finally {
+            MDC.remove("endpoint");
         }
-
-        AuthResponse authResponse = authService.refresh(new RefreshRequest(refreshToken));
-        setAuthCookies(response, authResponse.accessToken(), authResponse.refreshToken(), false);
-
-        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
-            @AuthenticationPrincipal User userDetails,
-            HttpServletResponse response
-    ) {
-        authService.logout(userDetails);
-        setAuthCookies(response, "", "", true);
+            @AuthenticationPrincipal User user,
+            HttpServletResponse response) {
 
-        return ResponseEntity.noContent().build();
+        MDC.put("endpoint", "POST /api/auth/logout");
+        if (user != null) MDC.put("userId", user.getId());
+        try {
+            log.info("Request received");
+            authService.logout(user);
+            clearAuthCookies(response);
+            log.info("Request completed");
+            return ResponseEntity.noContent().build();
+        } finally {
+            MDC.remove("userId");
+            MDC.remove("endpoint");
+        }
     }
 
-    private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken, boolean isLogout) {
+    private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                ResponseCookie.from("access_token", accessToken)
+                        .httpOnly(true).secure(true).path("/")
+                        .maxAge(Duration.ofMinutes(15)).sameSite("None")
+                        .build().toString());
 
-        ResponseCookie accessCookie = ResponseCookie.from("access_token", accessToken)
-                .httpOnly(true).secure(true).path("/")
-                .maxAge(Duration.ofMinutes(isLogout ? 0 : 15)).sameSite("None").build();
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                ResponseCookie.from("refresh_token", refreshToken)
+                        .httpOnly(true).secure(true).path("/api/auth/refresh")
+                        .maxAge(Duration.ofDays(7)).sameSite("None")
+                        .build().toString());
+    }
 
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
-                .httpOnly(true).secure(true).path("/api/auth/refresh")
-                .maxAge(Duration.ofDays(isLogout ? 0 : 7)).sameSite("None").build();
+    private void clearAuthCookies(HttpServletResponse response) {
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                ResponseCookie.from("access_token", "")
+                        .httpOnly(true).secure(true).path("/")
+                        .maxAge(Duration.ZERO).sameSite("None")
+                        .build().toString());
 
-        response.addHeader(HttpHeaders.SET_COOKIE, accessCookie.toString());
-        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                ResponseCookie.from("refresh_token", "")
+                        .httpOnly(true).secure(true).path("/api/auth/refresh")
+                        .maxAge(Duration.ZERO).sameSite("None")
+                        .build().toString());
     }
 }
