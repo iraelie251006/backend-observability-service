@@ -3,8 +3,8 @@ package tech.iraelie.practice.user.services;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -46,6 +46,7 @@ public class UserService implements UserInterface, UserDetailsService {
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    @Cacheable(value = "users", key = "#id")
     public UserDTO getUserById(String id) {
         log.info("Fetching user userId={}", id);
 
@@ -67,6 +68,7 @@ public class UserService implements UserInterface, UserDetailsService {
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    @Cacheable(value = "userOrders", key = "#id")
     public UserOrdersDTO getOrdersByUser(String id) {
         log.info("Fetching orders for userId={}", id);
 
