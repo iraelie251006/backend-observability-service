@@ -29,6 +29,7 @@ public class UserService implements UserInterface, UserDetailsService {
 
     @Override
     @PreAuthorize("hasRole('ADMIN')")
+    @Cacheable(value = "usersPage", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
     public Page<UserDTO> getAllUsers(Pageable pageable) {
         log.info("Fetching users page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
 
