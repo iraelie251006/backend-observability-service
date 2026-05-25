@@ -58,9 +58,9 @@ public class RedisConfig {
                 new RedisStandaloneConfiguration("localhost", 6379);
 
         GenericObjectPoolConfig<Object> poolConfig = new GenericObjectPoolConfig<>();
-        poolConfig.setMinIdle(2);          // always keep 2 connections warm
-        poolConfig.setMaxIdle(8);          // max idle connections kept alive
-        poolConfig.setMaxTotal(16);        // hard cap on total connections
+        poolConfig.setMinIdle(2);
+        poolConfig.setMaxIdle(8);
+        poolConfig.setMaxTotal(16);
         poolConfig.setMaxWait(Duration.ofMillis(500));
 
         LettucePoolingClientConfiguration clientConfig =
