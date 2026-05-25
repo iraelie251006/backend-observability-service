@@ -1,5 +1,6 @@
 package tech.iraelie.practice.config;
 
+import io.lettuce.core.api.StatefulConnection;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -57,7 +58,7 @@ public class RedisConfig {
         RedisStandaloneConfiguration serverConfig =
                 new RedisStandaloneConfiguration("localhost", 6379);
 
-        GenericObjectPoolConfig<Object> poolConfig = new GenericObjectPoolConfig<>();
+        GenericObjectPoolConfig<StatefulConnection<?, ?>> poolConfig = new GenericObjectPoolConfig<>();
         poolConfig.setMinIdle(2);
         poolConfig.setMaxIdle(8);
         poolConfig.setMaxTotal(16);
