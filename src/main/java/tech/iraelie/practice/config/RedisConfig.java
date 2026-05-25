@@ -9,6 +9,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -61,5 +62,13 @@ public class RedisConfig {
         poolConfig.setMaxIdle(8);          // max idle connections kept alive
         poolConfig.setMaxTotal(16);        // hard cap on total connections
         poolConfig.setMaxWait(Duration.ofMillis(500));
+
+        LettucePoolingClientConfiguration clientConfig =
+                LettucePoolingClientConfiguration.builder()
+                        .poolConfig(poolConfig)
+                        .commandTimeout(Duration.ofSeconds(2))
+                        .build();
+
+        return new LettuceConnectionFactory(serverConfig, clientConfig);
     }
 }
