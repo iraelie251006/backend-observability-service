@@ -1,5 +1,6 @@
 package tech.iraelie.practice.config;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -54,5 +55,11 @@ public class RedisConfig {
     public LettuceConnectionFactory redisConnectionFactory () {
         RedisStandaloneConfiguration serverConfig =
                 new RedisStandaloneConfiguration("localhost", 6379);
+
+        GenericObjectPoolConfig<Object> poolConfig = new GenericObjectPoolConfig<>();
+        poolConfig.setMinIdle(2);          // always keep 2 connections warm
+        poolConfig.setMaxIdle(8);          // max idle connections kept alive
+        poolConfig.setMaxTotal(16);        // hard cap on total connections
+        poolConfig.setMaxWait(Duration.ofMillis(500));
     }
 }
