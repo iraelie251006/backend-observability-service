@@ -2,6 +2,9 @@ package tech.iraelie.practice.order.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +30,8 @@ public class OrderService implements OrderInterface {
 
     @Override
     @Transactional
+    @CachePut(value = "order", key = "#return.id")
+    @CacheEvict(value = "ordersPage", allEntries = true)
     public OrderRequest createOrder(OrderCreateRequest request) {
         log.info("Creating order userId={}", request.getUserId());
 
@@ -49,6 +54,7 @@ public class OrderService implements OrderInterface {
 
     @Override
     @PreAuthorize("hasRole('ADMIN')")
+    @Cacheable(value = "ordersPage", key = "#pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort")
     public Page<OrderRequest> getAllOrders(Pageable pageable) {
         log.info("Fetching all orders page={} size={}", pageable.getPageNumber(), pageable.getPageSize());
         Page<OrderRequest> page = orderRepository.findAll(pageable).map(this::mapToOrderRequest);
@@ -58,6 +64,7 @@ public class OrderService implements OrderInterface {
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    @Cacheable(value = "order", key = "#id")
     public OrderRequest getOrderById(String id) {
         log.info("Fetching order orderId={}", id);
         return orderRepository.findById(id)
@@ -71,6 +78,8 @@ public class OrderService implements OrderInterface {
     @Override
     @Transactional
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    @CachePut(value = "order", key = "#id")
+    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
     public OrderRequest updateOrderById(String id, OrderRequest orderRequest) {
         log.info("Updating order orderId={}", id);
 
@@ -102,6 +111,8 @@ public class OrderService implements OrderInterface {
 
     @Override
     @Transactional
+    @CachePut(value = "order", key = "#id")
+    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
     public OrderRequest updatePartialOrderData(String id, OrderRequest orderRequest) {
         log.info("Partial update for orderId={}", id);
 
@@ -124,6 +135,8 @@ public class OrderService implements OrderInterface {
 
     @Override
     @Transactional
+    @CachePut(value = "order", key = "#id")
+    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
     public OrderRequest updateStatusById(String id, StatusRequest status) {
         log.info("Updating status for orderId={}", id);
 
@@ -145,6 +158,7 @@ public class OrderService implements OrderInterface {
 
     @Override
     @Transactional
+    @CacheEvict(value = {"order", "ordersPage"}, key = "#id", allEntries = true)
     public void deleteOrderById(String id) {
         log.info("Deleting order orderId={}", id);
 
