@@ -30,7 +30,7 @@ public class OrderService implements OrderInterface {
 
     @Override
     @Transactional
-    @CachePut(value = "order", key = "#return.id")
+    @CachePut(value = "order", key = "#result.id")
     @CacheEvict(value = "ordersPage", allEntries = true)
     public OrderRequest createOrder(OrderCreateRequest request) {
         log.info("Creating order userId={}", request.getUserId());
@@ -79,7 +79,7 @@ public class OrderService implements OrderInterface {
     @Transactional
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
     @CachePut(value = "order", key = "#id")
-    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
+    @CacheEvict(value = "ordersPage", allEntries = true)
     public OrderRequest updateOrderById(String id, OrderRequest orderRequest) {
         log.info("Updating order orderId={}", id);
 
@@ -105,6 +105,7 @@ public class OrderService implements OrderInterface {
             order.setUser(user);
         }
 
+        orderRepository.save(order);
         log.info("Order updated orderId={}", id);
         return mapToOrderRequest(order);
     }
@@ -112,7 +113,7 @@ public class OrderService implements OrderInterface {
     @Override
     @Transactional
     @CachePut(value = "order", key = "#id")
-    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
+    @CacheEvict(value = "ordersPage", allEntries = true)
     public OrderRequest updatePartialOrderData(String id, OrderRequest orderRequest) {
         log.info("Partial update for orderId={}", id);
 
@@ -129,6 +130,7 @@ public class OrderService implements OrderInterface {
             order.setOrderStatus(orderRequest.getOrderStatus());
         }
 
+        orderRepository.save(order);
         log.info("Partial update complete orderId={}", id);
         return mapToOrderRequest(order);
     }
@@ -136,7 +138,7 @@ public class OrderService implements OrderInterface {
     @Override
     @Transactional
     @CachePut(value = "order", key = "#id")
-    @CacheEvict(value = "ordersPage", key = "#id", allEntries = true)
+    @CacheEvict(value = "ordersPage", allEntries = true)
     public OrderRequest updateStatusById(String id, StatusRequest status) {
         log.info("Updating status for orderId={}", id);
 
@@ -153,12 +155,13 @@ public class OrderService implements OrderInterface {
             log.debug("Status unchanged orderId={} status={}", id, status.getStatus());
         }
 
+        orderRepository.save(order);
         return mapToOrderRequest(order);
     }
 
     @Override
     @Transactional
-    @CacheEvict(value = {"order", "ordersPage"}, key = "#id", allEntries = true)
+    @CacheEvict(value = {"order", "ordersPage"}, allEntries = true)
     public void deleteOrderById(String id) {
         log.info("Deleting order orderId={}", id);
 

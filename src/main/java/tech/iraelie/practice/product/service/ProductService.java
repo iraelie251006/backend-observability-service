@@ -40,7 +40,7 @@ public class ProductService implements ProductInterface{
     }
 
     @Override
-    @CachePut(value = "products", key = "#return.id")
+    @CachePut(value = "products", key = "#result.id")
     @CacheEvict(value = "productsPage", allEntries = true)
     public Product save(Product product) {
         log.info("Creating product name={}", product.getName());
@@ -69,7 +69,7 @@ public class ProductService implements ProductInterface{
 
     @Override
     @Transactional
-    @CacheEvict(value = {"products", "productsPage"}, key = "#id", allEntries = true)
+    @CacheEvict(value = {"products", "productsPage"}, allEntries = true)
     public void deleteById(String id) {
         log.info("Deleting product productId={}", id);
         Product existing = productRepository.findById(id)

@@ -34,6 +34,10 @@ IAM:
 
 ---
 
+## Architecture diagram
+
+<img src="src/main/resources/ecs-deployment.png"/>
+
 ## Services Used
 
 | Service | Purpose |
