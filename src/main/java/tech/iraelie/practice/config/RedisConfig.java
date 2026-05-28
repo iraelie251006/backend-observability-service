@@ -12,6 +12,7 @@ import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
+import org.springframework.data.redis.serializer.JacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import tools.jackson.databind.cfg.DateTimeFeature;
@@ -25,13 +26,14 @@ import java.time.Duration;
 public class RedisConfig {
     @Bean
     public CacheManager cacheManager(LettuceConnectionFactory connectionFactory) {
-        GenericJacksonJsonRedisSerializer jsonSerializer = GenericJacksonJsonRedisSerializer.builder(
-                        () -> JsonMapper.builder()
-                                .addModule(new JavaTimeModule())
-                                .configure(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-                )
-                .enableSpringCacheNullValueSupport()
+        JsonMapper jsonMapper = JsonMapper.builder()
+                .addModule(new JavaTimeModule())
+                .configure(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS, false)
                 .build();
+
+        // GenericJacksonJsonRedisSerializer adds @class field which leads to tight coupling between redis and application
+        // Jackson2JsonRedisSerializer is deprecated for version 4.0+
+        JacksonJsonRedisSerializer<Object> jsonSerializer = new JacksonJsonRedisSerializer<> (jsonMapper, Object.class);
 
 
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
