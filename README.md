@@ -1,5 +1,7 @@
 # Observability Service — AWS ECS Fargate Deployment
 
+![Build Status](https://codebuild.us-east-1.amazonaws.com/badges?uuid=YOUR_UUID)
+
 A production-grade Spring Boot application deployed on AWS ECS Fargate with a full cloud-native stack including secrets management, private database, load balancing, and container observability.
 
 ---
