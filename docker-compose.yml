@@ -54,6 +54,9 @@ services:
       - prometheus_data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
 
   grafana:
     image: grafana/grafana:latest
