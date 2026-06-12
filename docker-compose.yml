@@ -57,6 +57,9 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
       - --web.enable-lifecycle
+    networks:
+      - observability_network
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
@@ -69,6 +72,9 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
+    networks:
+      - observability_network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
@@ -81,3 +87,5 @@ networks:
   db_network:
     driver: bridge
     internal: true
+  observability_network:
+    driver: bridge
