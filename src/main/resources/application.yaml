@@ -1,6 +1,6 @@
 spring:
   application:
-    name: practice
+    name: observability-service
 
   datasource:
     url: ${DB_URL}
